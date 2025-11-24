@@ -1,6 +1,6 @@
 {
   "name": "strapi-provider-cloudflare-r2-advanced",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Advanced Strapi v5 upload provider for Cloudflare R2 with multi-bucket & path support.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
