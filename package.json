@@ -1,0 +1,48 @@
+{
+  "name": "strapi-provider-cloudflare-r2-advanced",
+  "version": "0.2.0",
+  "description": "Advanced Strapi v5 upload provider for Cloudflare R2 with multi-bucket & path support.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "jest",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "keywords": [
+    "strapi",
+    "upload",
+    "provider",
+    "cloudflare",
+    "r2",
+    "s3",
+    "multi-bucket"
+  ],
+  "author": "fanvyr",
+  "license": "MIT",
+  "peerDependencies": {
+    "@strapi/strapi": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.937.0",
+    "@aws-sdk/lib-storage": "^3.937.0",
+    "@aws-sdk/s3-request-presigner": "^3.937.0",
+    "@aws-sdk/types": "^3.936.0"
+  },
+  "engines": {
+    "node": ">=20.0.0 <=24.x.x",
+    "npm": ">=6.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fanvyr/strapi-provider-cloudflare-r2-advanced.git"
+  }
+}
