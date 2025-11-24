@@ -39,6 +39,7 @@
   },
   "files": [
     "dist",
+    "public",
     "README.md"
   ],
   "repository": {
