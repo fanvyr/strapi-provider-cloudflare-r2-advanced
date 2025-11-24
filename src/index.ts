@@ -365,32 +365,7 @@ const provider = {
        * Upload file – Strapi v5 will call this for buffer or stream.
        */
       async upload(file: StrapiR2.File, customParams: Partial<PutObjectCommandInput> = {}) {
-        console.log("[R2-ADVANCED] upload() invoked");
-
-        let isReplacement = false;
-        let originalFolder = null;
-
-        // Replacement detection:
-        // A replacement happens when the file already has provider_metadata.key,
-        // because Strapi admin does NOT call provider.replace().
-        if (file.provider_metadata && file.provider_metadata.key) {
-          isReplacement = true;
-          const oldKey = file.provider_metadata.key;
-          const lastSlash = oldKey.lastIndexOf("/");
-          originalFolder = lastSlash >= 0 ? oldKey.slice(0, lastSlash) : "";
-          console.log("[R2-ADVANCED] Replacement detected inside upload():", {
-            oldKey,
-            originalFolder
-          });
-        }
-
-        // If replacement, reconstruct file.path:
-        if (isReplacement) {
-          const bucket = file.provider_metadata?.bucket;
-          file.path = `bucket:${bucket}:${originalFolder}`;
-          (file as any)._replaceOriginalFolder = originalFolder;
-          console.log("[R2-ADVANCED] Forced file.path for replacement:", file.path);
-        }
+        // console.log("[R2-ADVANCED] upload() invoked");
 
         await uploadCore(file, customParams);
       },
@@ -399,6 +374,7 @@ const provider = {
        * Backwards-compatible uploadStream alias.
        */
       async uploadStream(file: StrapiR2.File, customParams: Partial<PutObjectCommandInput> = {}) {
+        // console.log("[R2-ADVANCED] uploadStream() invoked");
         await uploadCore(file, customParams);
       },
 
@@ -452,7 +428,7 @@ const provider = {
        * Same semantics as your current helper.
        */
       async getSignedUrl(file: StrapiR2.File, expiresIn?: number): Promise<string> {
-        console.log("[R2-ADVANCED] getSignedUrl() called");
+        // console.log("[R2-ADVANCED] getSignedUrl() called");
         const metadata = file.provider_metadata || {};
         const bucketKey = metadata.bucket as string | undefined;
         const key = metadata.key as string | undefined;
@@ -482,27 +458,14 @@ const provider = {
       },
 
       /**
-       * Replace an existing file (Media Library action).
+       * Replace an existing file (Media Library action). DOES NOT WORK - THÄÄNNKS @STRAPI! 
        * Steps:
        * 1) Delete existing file + its formats.
        * 2) Reconstruct original folder path from provider_metadata.key.
        * 3) Upload new file into same folder.
        */
       async replace(file: StrapiR2.File, customParams: Partial<PutObjectCommandInput> = {}) {
-        console.log("[R2-ADVANCED] replace() called");
-        console.log("[R2-ADVANCED] Incoming file object (summary):", {
-          id: file.id,
-          name: file.name,
-          path: file.path,
-          provider_metadata: file.provider_metadata,
-          formats: file.formats ? Object.keys(file.formats) : [],
-        });
-        console.error("[R2-DEBUG] replace() invoked => raw file:", {
-          id: file.id,
-          name: file.name,
-          path: file.path,
-          provider_metadata: file.provider_metadata,
-        });
+        
 
         // 1. Remove old file(s)
         await this.delete(file, customParams);
@@ -516,17 +479,14 @@ const provider = {
         const lastSlash = oldKey.lastIndexOf("/");
         const originalFolder = lastSlash >= 0 ? oldKey.slice(0, lastSlash) : "";
 
-        console.log("[R2-ADVANCED] Computed originalFolder:", originalFolder);
-        console.error("[R2-DEBUG] originalFolder =", originalFolder);
+        
 
         // Apply fix — make Strapi-admin replacement consistent
         file.path = `bucket:${oldMeta.bucket}:${originalFolder}`;
         (file as any)._replaceOriginalFolder = originalFolder;
 
-        console.log("[R2-ADVANCED] Updated file.path (forced restore):", file.path);
-        console.error("[R2-DEBUG] final file.path used =", file.path);
 
-        console.log("[R2-ADVANCED] Calling uploadCore() for replacement…");
+        // console.log("[R2-ADVANCED] Calling uploadCore() for replacement…");
         await uploadCore(file, customParams);
       }
     };
