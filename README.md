@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="./public/banner.png" alt="strapi-provider-cloudflare-r2-advanced Banner" />
+  <img src="https://raw.githubusercontent.com/fanvyr/strapi-provider-cloudflare-r2-advanced/main/public/banner.png" alt="strapi-provider-cloudflare-r2-advanced Banner" />
 </p>
 
 <p align="center">
-  <img src="./public/logo.png" alt="strapi-provider-cloudflare-r2-advanced Logo" width="160" />
+  <img src="https://raw.githubusercontent.com/fanvyr/strapi-provider-cloudflare-r2-advanced/main/public/logo.png" alt="strapi-provider-cloudflare-r2-advanced Logo" width="160" />
 </p>
 
 # strapi-provider-cloudflare-r2-advanced  
