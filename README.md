@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="./public/banner.png" alt="strapi-provider-cloudflare-r2-advanced Banner" />
+</p>
+
+<p align="center">
+  <img src="./public/logo.png" alt="strapi-provider-cloudflare-r2-advanced Logo" width="160" />
+</p>
+
 # strapi-provider-cloudflare-r2-advanced  
 ### Advanced Cloudflare R2 provider for Strapi v5  
 ✨ Multi-bucket support · 🔐 Private signed URLs · 🚀 AWS SDK v3 · 🪶 TypeScript
@@ -14,7 +22,7 @@ It offers advanced capabilities beyond standard S3 providers:
 - **Automatic signed URLs** for private buckets  
 - **Secure private/public domain routing**
 - **True Cloudflare R2 compatibility**  
-- **Advanced image format deletion** (thumbnail, small, medium, large)  
+- **Full image format deletion** (thumbnail, small, medium, large)  
 - **Streaming uploads using AWS SDK v3**
 - **Clean TypeScript implementation**
 - **Non-breaking replacement of existing S3 or R2 providers**
