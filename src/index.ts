@@ -458,6 +458,215 @@ const provider = {
       },
 
       /**
+       * Move a file (and all its formats) to another bucket/path.
+       * Performs COPY + DELETE and updates provider_metadata (and main url) in-place.
+       *
+       * Destination path must be in the form: bucket:BUCKET_KEY:some/folder
+       * The final object keys will keep the original filenames (hash+ext) for each variant.
+       */
+      async move(
+        file: StrapiR2.File,
+        options: {
+          toPath: string;
+          overwrite?: boolean;
+        }
+      ): Promise<void> {
+        const { toPath, overwrite = false } = options;
+
+        // if no file, throw error
+        if (!file) {
+          throw new Error("[strapi-provider-cloudflare-r2-advanced] move(): No file provided.");
+        }
+
+        const target = parseBucketFromPath(toPath);
+        if (!target) {
+          throw new Error(
+            "[strapi-provider-cloudflare-r2-advanced] move(): toPath must be in the form bucket:BUCKET_KEY:path"
+          );
+        }
+
+        const targetBucketKey = target.bucketKey;
+        const targetBucketName = config.buckets?.[targetBucketKey];
+        if (!targetBucketName) {
+          throw new Error(
+            `[strapi-provider-cloudflare-r2-advanced] move(): Unknown target bucket '${targetBucketKey}'.`
+          );
+        }
+
+        const targetBasePath = trimLeadingSlash(target.actualPath || "");
+
+        // Build a list of all variants (main file + formats)
+        const variants: Array<{
+          label: string;
+          meta: any;
+          applyNewMeta: (newMeta: any) => void;
+          setUrl?: (newUrl: string) => void;
+        }> = [];
+
+        if (file.provider_metadata) {
+          variants.push({
+            label: "original",
+            meta: file.provider_metadata,
+            applyNewMeta: (newMeta) => {
+              file.provider_metadata = newMeta;
+            },
+            setUrl: (newUrl) => {
+              file.url = newUrl;
+            }
+          });
+        }
+
+        if (file.formats && typeof file.formats === "object") {
+          for (const formatKey of Object.keys(file.formats)) {
+            const fmt = file.formats[formatKey];
+            if (fmt?.provider_metadata) {
+              variants.push({
+                label: `format:${formatKey}`,
+                meta: fmt.provider_metadata,
+                applyNewMeta: (newMeta) => {
+                  fmt.provider_metadata = newMeta;
+                }
+              });
+            }
+          }
+        }
+
+        if (variants.length === 0) {
+          // Nothing to move (no provider metadata)
+          return;
+        }
+
+        // Prepare copy operations and remember old locations for later delete
+        const planned: Array<{
+          label: string;
+          fromBucketKey: string;
+          fromBucketName: string;
+          fromKey: string;
+          toBucketKey: string;
+          toBucketName: string;
+          toKey: string;
+          currentMeta: any;
+          applyNewMeta: (newMeta: any) => void;
+          setUrl?: (newUrl: string) => void;
+        }> = [];
+
+        for (const v of variants) {
+          const meta = v.meta || {};
+          const fromBucketKey = meta.bucket as string | undefined;
+          const fromKey = meta.key as string | undefined;
+
+          if (!fromBucketKey || !fromKey) {
+            throw new Error(
+              `[strapi-provider-cloudflare-r2-advanced] move(): Missing provider_metadata.bucket/key for ${v.label}.`
+            );
+          }
+
+          const fromBucketName = config.buckets?.[fromBucketKey];
+          if (!fromBucketName) {
+            throw new Error(
+              `[strapi-provider-cloudflare-r2-advanced] move(): Unknown source bucket '${fromBucketKey}' for ${v.label}.`
+            );
+          }
+
+          const fileName = String(fromKey).split("/").pop();
+          if (!fileName) {
+            throw new Error(
+              `[strapi-provider-cloudflare-r2-advanced] move(): Cannot resolve filename for ${v.label}.`
+            );
+          }
+
+          const toKey = targetBasePath ? `${targetBasePath}/${fileName}` : fileName;
+
+          planned.push({
+            label: v.label,
+            fromBucketKey,
+            fromBucketName,
+            fromKey,
+            toBucketKey: targetBucketKey,
+            toBucketName: targetBucketName,
+            toKey,
+            currentMeta: meta,
+            applyNewMeta: v.applyNewMeta,
+            setUrl: v.setUrl
+          });
+        }
+
+        // Helper: test existence when overwrite is disabled
+        const ensureNotExists = async (bucketName: string, key: string) => {
+          try {
+            await s3Client.send(
+              new GetObjectCommand({
+                Bucket: bucketName,
+                Key: key
+              })
+            );
+            // If GetObject succeeded, the object exists
+            throw new Error(
+              `[strapi-provider-cloudflare-r2-advanced] move(): Target already exists (${key}).`
+            );
+          } catch (err: any) {
+            // Expected for non-existing keys; we cannot reliably distinguish all errors here,
+            // but R2/S3 will fail GetObject when object doesn't exist.
+            return;
+          }
+        };
+
+        // 1) COPY everything first (non-destructive)
+        for (const op of planned) {
+          if (!overwrite) {
+            await ensureNotExists(op.toBucketName, op.toKey);
+          }
+
+          // Lazy import to avoid touching top imports; keeps this insertion self-contained
+          const { CopyObjectCommand } = await import("@aws-sdk/client-s3");
+
+          await s3Client.send(
+            new CopyObjectCommand({
+              Bucket: op.toBucketName,
+              Key: op.toKey,
+              CopySource: `${op.fromBucketName}/${op.fromKey}`
+            })
+          );
+        }
+
+        // 2) DELETE sources (destructive) after all copies succeeded
+        for (const op of planned) {
+          await s3Client.send(
+            new DeleteObjectCommand({
+              Bucket: op.fromBucketName,
+              Key: op.fromKey
+            })
+          );
+        }
+
+        // 3) Update metadata + main URL
+        const isPrivateTarget = !config.publicDomains?.[targetBucketKey];
+
+        for (const op of planned) {
+          op.applyNewMeta({
+            ...(op.currentMeta || {}),
+            bucket: op.toBucketKey,
+            key: op.toKey,
+            isPrivate: isPrivateTarget
+          });
+
+          // Only update the main file url if we have a setter
+          if (op.setUrl) {
+            op.setUrl(
+              await buildFileUrl({
+                s3Client,
+                config,
+                bucketKey: op.toBucketKey,
+                bucketName: op.toBucketName,
+                key: op.toKey,
+                isPrivate: isPrivateTarget
+              })
+            );
+          }
+        }
+      },
+
+      /**
        * Replace an existing file (Media Library action). DOES NOT WORK - THÄÄNNKS @STRAPI! 
        * Steps:
        * 1) Delete existing file + its formats.
