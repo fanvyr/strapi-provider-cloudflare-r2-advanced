@@ -1,4 +1,4 @@
-const providerFactory = require('../lib');
+const providerFactory = require('..');
 
 describe('strapi-provider-cloudflare-r2-advanced', () => {
   it('exports an init function', () => {

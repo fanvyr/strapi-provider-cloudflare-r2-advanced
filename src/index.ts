@@ -1,5 +1,4 @@
 import type { ReadStream } from 'node:fs';
-import { getOr } from 'lodash/fp';
 import {
   S3Client,
   S3ClientConfig,
@@ -92,6 +91,14 @@ const trimLeadingSlash = (value?: string | null): string =>
  */
 const parseBucketFromPath = (path?: string | null) => {
   if (!path || typeof path !== 'string') return null;
+  const absoluteMatch = path.match(/^r2:\/\/([^/]+)\/(.*)$/);
+  if (absoluteMatch) {
+    return {
+      bucketKey: decodeURIComponent(absoluteMatch[1]),
+      actualPath: absoluteMatch[2],
+      absolute: true
+    };
+  }
   const bucketMatch = path.match(/^bucket:([^:]+):(.+)$/);
   if (!bucketMatch) return null;
 
@@ -149,9 +156,9 @@ const getConfig = (initOptions: StrapiR2.InitOptions): StrapiR2.DefaultOptions =
   }
 
   // Default ACL if not set
-  config.params.ACL = getOr(ObjectCannedACL.public_read, ['params', 'ACL'], config) as
-    | ObjectCannedACL
-    | string;
+  if (config.params.ACL === undefined) {
+    config.params.ACL = ObjectCannedACL.public_read;
+  }
 
   // Reasonable defaults for our advanced options
   config.buckets = config.buckets || {};
@@ -183,6 +190,10 @@ const getBucketInfo = (
       bucketKey: pathInfo.bucketKey,
       bucketName: buckets[pathInfo.bucketKey]
     };
+  }
+
+  if (pathInfo?.absolute) {
+    throw new Error(`[R2] Unknown bucket '${pathInfo.bucketKey}' in replacement path.`);
   }
 
   // 2) Default bucket
@@ -253,7 +264,7 @@ const buildFileUrl = async (args: {
   if (isPrivate) {
     const command = new GetObjectCommand({
       Bucket: bucketName,
-      Key: cleanKey
+      Key: key
     });
 
     const signedUrl = await getSignedUrl(s3Client, command, {
@@ -290,22 +301,27 @@ const provider = {
     const filePrefix = rootPath ? `${trimSlash(rootPath)}/` : '';
 
     const getFileKeyForUpload = (file: StrapiR2.File): string => {
+      const location = parseBucketFromPath(file.path);
+      if (location?.absolute) {
+        return `${location.actualPath ? `${location.actualPath}/` : ''}${file.hash}${file.ext}`;
+      }
       const key = getObjectKey(file, config);
       return `${filePrefix}${key}`;
     };
 
     const uploadCore = async (
       file: StrapiR2.File,
-      customParams: Partial<PutObjectCommandInput> = {}
+      customParams: Partial<PutObjectCommandInput> = {},
+      destination?: { bucketKey: string; bucketName: string; key: string }
     ): Promise<void> => {
       const effectivePath = (file as any)._replaceOriginalFolder || file.path;
 
-      const bucketInfo = getBucketInfo(file, config);
+      const bucketInfo = destination || getBucketInfo(file, config);
 
       // Temporarily inject effectivePath for key calculation
       const originalPathBackup = file.path;
       (file as any).path = effectivePath;
-      const Key = getFileKeyForUpload(file);
+      const Key = destination ? destination.key : getFileKeyForUpload(file);
       file.path = originalPathBackup;
 
       const body =
@@ -358,6 +374,21 @@ const provider = {
         key: Key,
         isPrivate: isPrivateBucket
       };
+    };
+
+    const replaceFile = async (file: StrapiR2.File, oldFile: StrapiR2.File): Promise<void> => {
+      const { bucket, key } = oldFile?.provider_metadata || {};
+      if (typeof bucket !== 'string' || !bucket || typeof key !== 'string' || !key) {
+        throw new Error('[R2] Cannot replace: oldFile.provider_metadata.bucket/key missing.');
+      }
+      const bucketName = config.buckets?.[bucket];
+      if (!bucketName) throw new Error(`[R2] Cannot replace: unknown bucket '${bucket}'.`);
+
+      // Strapi generates new formats while replacement is pending; they inherit path.
+      // An absolute path retains the stored directory even after rootPath/pool changes.
+      const folder = key.slice(0, Math.max(0, key.lastIndexOf('/')));
+      file.path = `r2://${encodeURIComponent(bucket)}/${folder}`;
+      await uploadCore(file, {}, { bucketKey: bucket, bucketName, key });
     };
 
     return {
@@ -667,14 +698,14 @@ const provider = {
       },
 
       /**
-       * Replace an existing file (Media Library action). DOES NOT WORK - THÄÄNNKS @STRAPI! 
-       * Steps:
-       * 1) Delete existing file + its formats.
-       * 2) Reconstruct original folder path from provider_metadata.key.
-       * 3) Upload new file into same folder.
+       * Strapi supplies (newFile, oldFile); retain legacy (file, customParams) calls.
        */
-      async replace(file: StrapiR2.File, customParams: Partial<PutObjectCommandInput> = {}) {
-        
+      async replace(file: StrapiR2.File, oldFileOrParams: StrapiR2.File | Partial<PutObjectCommandInput> = {}) {
+        if ('provider_metadata' in oldFileOrParams || 'hash' in oldFileOrParams) {
+          // Strapi manages formats separately; overwrite only this object.
+          return replaceFile(file, oldFileOrParams as StrapiR2.File);
+        }
+        const customParams = oldFileOrParams as Partial<PutObjectCommandInput>;
 
         // 1. Remove old file(s)
         await this.delete(file, customParams);
@@ -697,6 +728,10 @@ const provider = {
 
         // console.log("[R2-ADVANCED] Calling uploadCore() for replacement…");
         await uploadCore(file, customParams);
+      },
+
+      async replaceStream(file: StrapiR2.File, oldFile: StrapiR2.File) {
+        await replaceFile(file, oldFile);
       }
     };
   }
